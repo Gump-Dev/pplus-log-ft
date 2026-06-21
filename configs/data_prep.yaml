@@ -1,0 +1,33 @@
+# Data Prep Config
+clickhouse:
+  host: "10.1.10.13"
+  port: 18123
+  user: "pplus"
+  password: "${CH_PASSWORD}"
+  database: "logs"
+  table: "fortigate_traffic"
+
+sampling:
+  total_rows: 300000
+  splits:
+    threat: 50000      # threat_matched=1
+    suspicious: 50000  # deny + scan patterns
+    normal: 200000     # accept/pass/close
+  train_ratio: 0.85
+  val_ratio: 0.10
+  test_ratio: 0.05
+
+  # Threat sub-sampling by type
+  threat_types:
+    - virus
+    - ips
+    - webfilter
+    - dlp
+    - anomaly
+    - botnet
+    - spam
+    - other
+
+output:
+  dir: "./datasets"
+  format: "jsonl"

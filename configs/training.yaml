@@ -1,0 +1,35 @@
+# Training Config
+model:
+  base_model: "/home/travix3/models/Qwen3-8B-FP8"
+  output_dir: "./outputs/qwen3-8b-ft-v1"
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+training:
+  epochs: 3
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 2e-4
+  warmup_ratio: 0.03
+  lr_scheduler: "cosine"
+  max_seq_length: 2048
+  save_steps: 500
+  eval_steps: 500
+  bf16: true
+  gradient_checkpointing: true
+
+# Run on DGX Spark GB10
+hardware:
+  device: "cuda:0"
+  gpu_memory_utilization: 0.45  # leave room for vLLM if co-located
