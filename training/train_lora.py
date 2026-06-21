@@ -45,6 +45,13 @@ def main():
     parser.add_argument("--max-train", type=int, default=None, help="Limit train samples (for testing)")
     parser.add_argument("--max-val", type=int, default=None, help="Limit val samples")
     parser.add_argument("--max-steps", type=int, default=-1, help="Override max training steps")
+    parser.add_argument("--batch-size", type=int, default=None, help="Override per-device train/eval batch size")
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=None,
+        help="Override gradient accumulation steps",
+    )
     parser.add_argument("--train-offset", type=int, default=0, help="Start index after optional shuffle")
     parser.add_argument("--shuffle-seed", type=int, default=None, help="Deterministically shuffle before slicing")
     parser.add_argument("--resume-adapter", default=None, help="LoRA adapter directory to continue training from")
@@ -145,6 +152,10 @@ def main():
 
     save_steps = as_int(train_cfg["save_steps"])
     eval_steps = as_int(train_cfg["eval_steps"])
+    batch_size = args.batch_size or as_int(train_cfg["batch_size"])
+    gradient_accumulation_steps = (
+        args.gradient_accumulation_steps or as_int(train_cfg["gradient_accumulation_steps"])
+    )
     load_best_model = True
     if args.max_steps and 0 < args.max_steps < min(save_steps, eval_steps):
         save_steps = args.max_steps
@@ -156,9 +167,9 @@ def main():
         output_dir=output_dir,
         num_train_epochs=as_float(train_cfg["epochs"]),
         max_steps=args.max_steps,
-        per_device_train_batch_size=as_int(train_cfg["batch_size"]),
-        per_device_eval_batch_size=as_int(train_cfg["batch_size"]),
-        gradient_accumulation_steps=as_int(train_cfg["gradient_accumulation_steps"]),
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=as_float(train_cfg["learning_rate"]),
         warmup_ratio=as_float(train_cfg["warmup_ratio"]),
         lr_scheduler_type=train_cfg["lr_scheduler"],

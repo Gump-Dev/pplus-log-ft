@@ -12,7 +12,11 @@ LOT_SIZE="${LOT_SIZE:-20000}"
 VAL_SIZE="${VAL_SIZE:-2000}"
 SHUFFLE_SEED="${SHUFFLE_SEED-20260621}"
 START_LOT="${START_LOT:-0}"
+START_OFFSET="${START_OFFSET:-}"
 PREVIOUS_ADAPTER="${PREVIOUS_ADAPTER:-}"
+TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-}"
+MAX_STEPS="${MAX_STEPS:-}"
 
 cd "$PROJECT_DIR"
 mkdir -p "$OUTPUT_ROOT" "$LOG_DIR"
@@ -32,9 +36,23 @@ else
 fi
 echo "Output root: ${OUTPUT_ROOT}"
 echo "State file: ${STATE_FILE}"
+if [ -n "$TRAIN_BATCH_SIZE" ]; then
+  echo "Batch size override: ${TRAIN_BATCH_SIZE}"
+fi
+if [ -n "$GRADIENT_ACCUMULATION_STEPS" ]; then
+  echo "Gradient accumulation override: ${GRADIENT_ACCUMULATION_STEPS}"
+fi
+if [ -n "$MAX_STEPS" ]; then
+  echo "Max steps override: ${MAX_STEPS}"
+fi
 
-offset=$((START_LOT * LOT_SIZE))
-lot="$START_LOT"
+if [ -n "$START_OFFSET" ]; then
+  offset="$START_OFFSET"
+  lot="$START_LOT"
+else
+  offset=$((START_LOT * LOT_SIZE))
+  lot="$START_LOT"
+fi
 previous_adapter="$PREVIOUS_ADAPTER"
 
 while [ "$offset" -lt "$TOTAL_TRAIN" ]; do
@@ -63,6 +81,18 @@ while [ "$offset" -lt "$TOTAL_TRAIN" ]; do
 
   if [ -n "$SHUFFLE_SEED" ]; then
     cmd+=(--shuffle-seed "$SHUFFLE_SEED")
+  fi
+
+  if [ -n "$TRAIN_BATCH_SIZE" ]; then
+    cmd+=(--batch-size "$TRAIN_BATCH_SIZE")
+  fi
+
+  if [ -n "$GRADIENT_ACCUMULATION_STEPS" ]; then
+    cmd+=(--gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS")
+  fi
+
+  if [ -n "$MAX_STEPS" ]; then
+    cmd+=(--max-steps "$MAX_STEPS")
   fi
 
   if [ -n "$previous_adapter" ]; then
