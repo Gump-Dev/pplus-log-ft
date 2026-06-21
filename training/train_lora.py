@@ -14,7 +14,7 @@ import argparse
 import yaml
 import torch
 from datasets import Dataset
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, PeftModel, get_peft_model, TaskType
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTTrainer, SFTConfig
 
@@ -45,6 +45,10 @@ def main():
     parser.add_argument("--max-train", type=int, default=None, help="Limit train samples (for testing)")
     parser.add_argument("--max-val", type=int, default=None, help="Limit val samples")
     parser.add_argument("--max-steps", type=int, default=-1, help="Override max training steps")
+    parser.add_argument("--train-offset", type=int, default=0, help="Start index after optional shuffle")
+    parser.add_argument("--shuffle-seed", type=int, default=None, help="Deterministically shuffle before slicing")
+    parser.add_argument("--resume-adapter", default=None, help="LoRA adapter directory to continue training from")
+    parser.add_argument("--resume-from-checkpoint", default=None, help="Trainer checkpoint for interrupted same-lot resume")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -92,6 +96,14 @@ def main():
     train_data = load_jsonl(f"{args.data_dir}/train.jsonl")
     val_data = load_jsonl(f"{args.data_dir}/val.jsonl")
 
+    if args.shuffle_seed is not None:
+        import random
+
+        rng = random.Random(args.shuffle_seed)
+        rng.shuffle(train_data)
+
+    if args.train_offset:
+        train_data = train_data[args.train_offset:]
     if args.max_train:
         train_data = train_data[:args.max_train]
     if args.max_val:
@@ -116,15 +128,19 @@ def main():
     model.config.use_cache = False
 
     # --- LoRA ---
-    lora_config = LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=lora_cfg["r"],
-        lora_alpha=lora_cfg["alpha"],
-        lora_dropout=lora_cfg["dropout"],
-        target_modules=lora_cfg["target_modules"],
-        bias="none",
-    )
-    model = get_peft_model(model, lora_config)
+    if args.resume_adapter:
+        print(f"\nLoading trainable LoRA adapter from {args.resume_adapter}")
+        model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
+    else:
+        lora_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=lora_cfg["r"],
+            lora_alpha=lora_cfg["alpha"],
+            lora_dropout=lora_cfg["dropout"],
+            target_modules=lora_cfg["target_modules"],
+            bias="none",
+        )
+        model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
     save_steps = as_int(train_cfg["save_steps"])
@@ -173,7 +189,7 @@ def main():
 
     # --- Train ---
     print("\n=== Starting training ===")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
 
     # --- Save ---
     print(f"\n=== Saving to {output_dir} ===")

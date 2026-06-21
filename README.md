@@ -51,6 +51,11 @@ pplus-log-ft/
 ### Phase 3: Fine-tune
 - LoRA fine-tune on Qwen3-8B
 - ~2-4h/epoch on GB10
+- Full train can be run as staged lots:
+  - `scripts/run_lot_training.sh` splits `datasets/train.jsonl` into 20K-row lots by default.
+  - Each lot saves its own adapter under `outputs/qwen3-8b-ft-v1-lots/lot-XXX`.
+  - Later lots continue from the previous lot with `--resume-adapter`.
+  - `scripts/wait_then_run_lots.sh` can wait for a running pilot job, then continue remaining lots.
 
 ### Phase 4: Eval + Deploy
 - Compare vs base model
