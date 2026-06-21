@@ -52,6 +52,12 @@ def main():
         default=None,
         help="Override gradient accumulation steps",
     )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        choices=("true", "false"),
+        default=None,
+        help="Override gradient checkpointing",
+    )
     parser.add_argument("--train-offset", type=int, default=0, help="Start index after optional shuffle")
     parser.add_argument("--shuffle-seed", type=int, default=None, help="Deterministically shuffle before slicing")
     parser.add_argument("--resume-adapter", default=None, help="LoRA adapter directory to continue training from")
@@ -156,6 +162,9 @@ def main():
     gradient_accumulation_steps = (
         args.gradient_accumulation_steps or as_int(train_cfg["gradient_accumulation_steps"])
     )
+    gradient_checkpointing = train_cfg["gradient_checkpointing"]
+    if args.gradient_checkpointing is not None:
+        gradient_checkpointing = args.gradient_checkpointing == "true"
     load_best_model = True
     if args.max_steps and 0 < args.max_steps < min(save_steps, eval_steps):
         save_steps = args.max_steps
@@ -179,8 +188,8 @@ def main():
         eval_strategy="steps",
         save_total_limit=3,
         bf16=train_cfg["bf16"],
-        gradient_checkpointing=train_cfg["gradient_checkpointing"],
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        gradient_checkpointing=gradient_checkpointing,
+        gradient_checkpointing_kwargs={"use_reentrant": False} if gradient_checkpointing else None,
         logging_steps=10,
         report_to="none",
         load_best_model_at_end=load_best_model,

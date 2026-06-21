@@ -16,6 +16,7 @@ START_OFFSET="${START_OFFSET:-}"
 PREVIOUS_ADAPTER="${PREVIOUS_ADAPTER:-}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-}"
 GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-}"
 MAX_STEPS="${MAX_STEPS:-}"
 
 cd "$PROJECT_DIR"
@@ -41,6 +42,9 @@ if [ -n "$TRAIN_BATCH_SIZE" ]; then
 fi
 if [ -n "$GRADIENT_ACCUMULATION_STEPS" ]; then
   echo "Gradient accumulation override: ${GRADIENT_ACCUMULATION_STEPS}"
+fi
+if [ -n "$GRADIENT_CHECKPOINTING" ]; then
+  echo "Gradient checkpointing override: ${GRADIENT_CHECKPOINTING}"
 fi
 if [ -n "$MAX_STEPS" ]; then
   echo "Max steps override: ${MAX_STEPS}"
@@ -89,6 +93,10 @@ while [ "$offset" -lt "$TOTAL_TRAIN" ]; do
 
   if [ -n "$GRADIENT_ACCUMULATION_STEPS" ]; then
     cmd+=(--gradient-accumulation-steps "$GRADIENT_ACCUMULATION_STEPS")
+  fi
+
+  if [ -n "$GRADIENT_CHECKPOINTING" ]; then
+    cmd+=(--gradient-checkpointing "$GRADIENT_CHECKPOINTING")
   fi
 
   if [ -n "$MAX_STEPS" ]; then

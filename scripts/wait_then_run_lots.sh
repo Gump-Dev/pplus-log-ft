@@ -26,6 +26,16 @@ if grep -q "=== Done" "$PILOT_LOG" \
   if [ "${RUN_BATCH_BENCHMARKS:-0}" = "1" ]; then
     echo "[$(date --iso-8601=seconds)] running batch benchmarks before remaining lots"
     PILOT_ADAPTER="$PILOT_ADAPTER" ./scripts/benchmark_batch_configs.sh
+    winner_env="$(ls -t logs/batch-benchmark-winner-*.env 2>/dev/null | head -n 1 || true)"
+    if [ -n "$winner_env" ]; then
+      echo "[$(date --iso-8601=seconds)] loading benchmark winner from ${winner_env}"
+      # shellcheck disable=SC1090
+      source "$winner_env"
+      export TRAIN_BATCH_SIZE GRADIENT_ACCUMULATION_STEPS GRADIENT_CHECKPOINTING
+      echo "[$(date --iso-8601=seconds)] selected benchmark winner ${BENCHMARK_WINNER:-unknown}: batch=${TRAIN_BATCH_SIZE:-}, accum=${GRADIENT_ACCUMULATION_STEPS:-}, gradient_checkpointing=${GRADIENT_CHECKPOINTING:-}"
+    else
+      echo "[$(date --iso-8601=seconds)] benchmark winner env not found; using existing lot overrides"
+    fi
     echo "[$(date --iso-8601=seconds)] batch benchmarks finished; starting remaining lots"
   fi
   SHUFFLE_SEED= \
