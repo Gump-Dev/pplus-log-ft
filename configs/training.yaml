@@ -1,6 +1,7 @@
 # Training Config
 model:
-  base_model: "/home/travix3/models/Qwen3-8B-FP8"
+  # Use BF16 for training. FP8 checkpoints are inference-only in Transformers.
+  base_model: "/home/travix3/models/Qwen3-8B-BF16"
   output_dir: "./outputs/qwen3-8b-ft-v1"
 
 lora:
@@ -17,15 +18,15 @@ lora:
     - down_proj
 
 training:
-  epochs: 3
-  batch_size: 4
-  gradient_accumulation_steps: 8
+  epochs: 1
+  batch_size: 8
+  gradient_accumulation_steps: 4
   learning_rate: 2e-4
   warmup_ratio: 0.03
   lr_scheduler: "cosine"
-  max_seq_length: 2048
-  save_steps: 500
-  eval_steps: 500
+  max_seq_length: 1024
+  save_steps: 1000
+  eval_steps: 1000
   bf16: true
   gradient_checkpointing: true
 

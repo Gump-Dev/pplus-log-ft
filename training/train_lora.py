@@ -1,21 +1,21 @@
 """
 LoRA fine-tune script for Qwen3-8B on FortiGate log classification data.
 Designed to run on DGX Spark (NVIDIA GB10, aarch64).
+
+Usage:
+  /home/travix3/vllm-install/.vllm/bin/python3 training/train_lora.py \
+    --config configs/training.yaml \
+    --data-dir ./datasets \
+    --output-dir ./outputs/qwen3-8b-ft-v1
 """
-import os
 import json
 import argparse
-from pathlib import Path
 
 import yaml
 import torch
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model, TaskType
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    TrainingArguments,
-)
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTTrainer, SFTConfig
 
 
@@ -29,14 +29,12 @@ def load_jsonl(path: str) -> list:
         return [json.loads(line) for line in f]
 
 
-def format_chat example):
-    """Format as Qwen chat template."""
-    messages = [
-        {"role": "system", "content": "You are a FortiGate firewall log analyst. Classify log entries accurately."},
-        {"role": "user", "content": example["instruction"].split("\n\nLog: ")[-1]},
-        {"role": "assistant", "content": example["response"]},
-    ]
-    return {"text": tokenizer.apply_chat_template(messages, tokenize=False)}
+def as_float(value) -> float:
+    return float(value)
+
+
+def as_int(value) -> int:
+    return int(value)
 
 
 def main():
@@ -44,6 +42,9 @@ def main():
     parser.add_argument("--config", default="configs/training.yaml")
     parser.add_argument("--data-dir", default="./datasets")
     parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--max-train", type=int, default=None, help="Limit train samples (for testing)")
+    parser.add_argument("--max-val", type=int, default=None, help="Limit val samples")
+    parser.add_argument("--max-steps", type=int, default=-1, help="Override max training steps")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -58,9 +59,9 @@ def main():
     print(f"Base model: {model_cfg['base_model']}")
     print(f"Output:     {output_dir}")
     print(f"Device:     {hw_cfg['device']}")
+    print(f"VRAM free:  {torch.cuda.mem_get_info()[0] / 1e9:.1f} GB")
 
-    # Load tokenizer
-    global tokenizer
+    # --- Tokenizer ---
     tokenizer = AutoTokenizer.from_pretrained(
         model_cfg["base_model"],
         trust_remote_code=True,
@@ -69,7 +70,42 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Load model
+    # --- Format data ---
+    def format_chat(example):
+        """Format as Qwen chat template."""
+        # Extract just the log portion from instruction
+        instruction = example["instruction"]
+        if "\n\nLog: " in instruction:
+            log_part = instruction.split("\n\nLog: ", 1)[1]
+        else:
+            log_part = instruction
+
+        messages = [
+            {"role": "system", "content": "You are a FortiGate firewall log analyst. Classify log entries accurately."},
+            {"role": "user", "content": f"Classify this FortiGate log entry:\n{log_part}"},
+            {"role": "assistant", "content": example["response"]},
+        ]
+        return {"text": tokenizer.apply_chat_template(messages, tokenize=False)}
+
+    # --- Load datasets ---
+    print("\nLoading datasets...")
+    train_data = load_jsonl(f"{args.data_dir}/train.jsonl")
+    val_data = load_jsonl(f"{args.data_dir}/val.jsonl")
+
+    if args.max_train:
+        train_data = train_data[:args.max_train]
+    if args.max_val:
+        val_data = val_data[:args.max_val]
+
+    train_ds = Dataset.from_list([format_chat(ex) for ex in train_data])
+    val_ds = Dataset.from_list([format_chat(ex) for ex in val_data])
+
+    print(f"Train: {len(train_ds)}, Val: {len(val_ds)}")
+
+    # Sample
+    print(f"\nSample train entry:\n{train_ds[0]['text'][:500]}...")
+
+    # --- Load model ---
     print("\nLoading model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_cfg["base_model"],
@@ -79,7 +115,7 @@ def main():
     )
     model.config.use_cache = False
 
-    # LoRA
+    # --- LoRA ---
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         r=lora_cfg["r"],
@@ -91,29 +127,28 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # Load datasets
-    print("\nLoading datasets...")
-    train_data = load_jsonl(f"{args.data_dir}/train.jsonl")
-    val_data = load_jsonl(f"{args.data_dir}/val.jsonl")
+    save_steps = as_int(train_cfg["save_steps"])
+    eval_steps = as_int(train_cfg["eval_steps"])
+    load_best_model = True
+    if args.max_steps and 0 < args.max_steps < min(save_steps, eval_steps):
+        save_steps = args.max_steps
+        eval_steps = args.max_steps
+        load_best_model = False
 
-    train_ds = Dataset.from_list([format_chat(ex) for ex in train_data])
-    val_ds = Dataset.from_list([format_chat(ex) for ex in val_data])
-
-    print(f"Train: {len(train_ds)}, Val: {len(val_ds)}")
-
-    # Training config
+    # --- Training config ---
     sft_config = SFTConfig(
         output_dir=output_dir,
-        num_train_epochs=train_cfg["epochs"],
-        per_device_train_batch_size=train_cfg["batch_size"],
-        per_device_eval_batch_size=train_cfg["batch_size"],
-        gradient_accumulation_steps=train_cfg["gradient_accumulation_steps"],
-        learning_rate=train_cfg["learning_rate"],
-        warmup_ratio=train_cfg["warmup_ratio"],
+        num_train_epochs=as_float(train_cfg["epochs"]),
+        max_steps=args.max_steps,
+        per_device_train_batch_size=as_int(train_cfg["batch_size"]),
+        per_device_eval_batch_size=as_int(train_cfg["batch_size"]),
+        gradient_accumulation_steps=as_int(train_cfg["gradient_accumulation_steps"]),
+        learning_rate=as_float(train_cfg["learning_rate"]),
+        warmup_ratio=as_float(train_cfg["warmup_ratio"]),
         lr_scheduler_type=train_cfg["lr_scheduler"],
-        max_seq_length=train_cfg["max_seq_length"],
-        save_steps=train_cfg["save_steps"],
-        eval_steps=train_cfg["eval_steps"],
+        max_length=as_int(train_cfg["max_seq_length"]),
+        save_steps=save_steps,
+        eval_steps=eval_steps,
         eval_strategy="steps",
         save_total_limit=3,
         bf16=train_cfg["bf16"],
@@ -121,12 +156,13 @@ def main():
         gradient_checkpointing_kwargs={"use_reentrant": False},
         logging_steps=10,
         report_to="none",
-        load_best_model_at_end=True,
+        load_best_model_at_end=load_best_model,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
+        dataset_text_field="text",
     )
 
-    # Trainer
+    # --- Trainer ---
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
@@ -135,11 +171,11 @@ def main():
         processing_class=tokenizer,
     )
 
-    # Train
+    # --- Train ---
     print("\n=== Starting training ===")
     trainer.train()
 
-    # Save
+    # --- Save ---
     print(f"\n=== Saving to {output_dir} ===")
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
