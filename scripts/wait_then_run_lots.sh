@@ -18,6 +18,11 @@ echo "[$(date --iso-8601=seconds)] pilot process ended"
 if grep -q "=== Done" "$PILOT_LOG" \
   && { [ -f "${PILOT_ADAPTER}/adapter_model.safetensors" ] || [ -f "${PILOT_ADAPTER}/adapter_model.bin" ]; }; then
   echo "[$(date --iso-8601=seconds)] pilot adapter found; starting remaining lots"
+  if [ "${RUN_QUALITY_GATE:-0}" = "1" ]; then
+    echo "[$(date --iso-8601=seconds)] running dataset quality gate before remaining lots"
+    PYTHON_BIN="${PYTHON_BIN:-/home/travix3/vllm-install/.vllm/bin/python3}" ./scripts/run_quality_gate.sh
+    echo "[$(date --iso-8601=seconds)] dataset quality gate passed"
+  fi
   if [ "${RUN_BATCH_BENCHMARKS:-0}" = "1" ]; then
     echo "[$(date --iso-8601=seconds)] running batch benchmarks before remaining lots"
     PILOT_ADAPTER="$PILOT_ADAPTER" ./scripts/benchmark_batch_configs.sh

@@ -75,6 +75,25 @@ def compute_metrics(predictions, labels):
     return results
 
 
+def build_confusion_matrix(predictions, labels):
+    classes = sorted(set(labels) | set(predictions))
+    matrix = {
+        true_cls: {
+            pred_cls: sum(1 for p, l in zip(predictions, labels) if l == true_cls and p == pred_cls)
+            for pred_cls in classes
+        }
+        for true_cls in classes
+    }
+    return classes, matrix
+
+
+def write_jsonl(records, path):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate fine-tuned model")
     parser.add_argument("--base-model", required=True)
@@ -82,6 +101,8 @@ def main():
     parser.add_argument("--test-data", default="./datasets/test.jsonl")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--output-json", default=None, help="Write machine-readable metrics JSON")
+    parser.add_argument("--predictions-jsonl", default=None, help="Write per-sample predictions JSONL")
     args = parser.parse_args()
 
     print(f"=== Evaluation ===")
@@ -115,6 +136,7 @@ def main():
 
     predictions = []
     labels = []
+    prediction_records = []
 
     for i, ex in enumerate(test_data):
         prompt = ex["instruction"].split("\n\nLog: ")[-1]
@@ -125,12 +147,23 @@ def main():
 
         predictions.append(pred_label)
         labels.append(true_label)
+        prediction_records.append(
+            {
+                "index": i,
+                "label": true_label,
+                "prediction": pred_label,
+                "response": response,
+                "expected_response": ex.get("response"),
+                "correct": pred_label == true_label,
+            }
+        )
 
         if (i + 1) % 100 == 0:
             print(f"  Processed {i+1}/{len(test_data)}...")
 
     # Metrics
     metrics = compute_metrics(predictions, labels)
+    classes, confusion_matrix = build_confusion_matrix(predictions, labels)
 
     print(f"\n=== Results ===")
     print(f"Accuracy: {metrics['accuracy']:.4f}")
@@ -140,15 +173,32 @@ def main():
 
     # Confusion matrix
     print(f"\n=== Confusion Matrix ===")
-    classes = sorted(set(labels) | set(predictions))
     header = "True\\Pred".ljust(15) + "".join(c[:12].ljust(13) for c in classes)
     print(header)
     for true_cls in classes:
         row = true_cls[:14].ljust(15)
         for pred_cls in classes:
-            count = sum(1 for p, l in zip(predictions, labels) if l == true_cls and p == pred_cls)
+            count = confusion_matrix[true_cls][pred_cls]
             row += str(count).ljust(13)
         print(row)
+
+    if args.output_json:
+        output = {
+            "base_model": args.base_model,
+            "adapter_path": args.adapter_path,
+            "test_data": args.test_data,
+            "sample_count": len(test_data),
+            "metrics": metrics,
+            "classes": classes,
+            "confusion_matrix": confusion_matrix,
+        }
+        Path(args.output_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output_json).write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
+        print(f"\nMetrics JSON: {args.output_json}")
+
+    if args.predictions_jsonl:
+        write_jsonl(prediction_records, args.predictions_jsonl)
+        print(f"Predictions JSONL: {args.predictions_jsonl}")
 
 
 if __name__ == "__main__":

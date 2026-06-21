@@ -60,3 +60,36 @@ pplus-log-ft/
 ### Phase 4: Eval + Deploy
 - Compare vs base model
 - Serve via vLLM
+
+## Dataset Quality + Eval Gate
+
+Run the lightweight quality gate before training or after regenerating data:
+
+```bash
+PROJECT_DIR=/home/travix3/pplus-log-ft \
+PYTHON_BIN=/home/travix3/vllm-install/.vllm/bin/python3 \
+scripts/run_quality_gate.sh
+```
+
+Outputs:
+
+- `eval/reports/dataset_quality.json` — machine-readable checks
+- `eval/reports/dataset_quality.md` — human summary
+- `eval/fixed_eval_set.jsonl` — deterministic stratified test slice for regression eval
+
+The gate checks broken JSON, required fields, label/category mismatch,
+missing log markers, duplicate instructions, train/val/test leakage,
+label-rule mismatches from FortiGate action/subtype fields, class balance,
+and instruction length outliers.
+
+After an adapter is available, run generation eval against the fixed set:
+
+```bash
+/home/travix3/vllm-install/.vllm/bin/python3 eval/evaluate.py \
+  --base-model /home/travix3/models/Qwen3-8B-BF16 \
+  --adapter-path outputs/qwen3-8b-ft-v1-full-lots/lot-010 \
+  --test-data eval/fixed_eval_set.jsonl \
+  --max-samples 1000 \
+  --output-json eval/reports/lot-010-metrics.json \
+  --predictions-jsonl eval/reports/lot-010-predictions.jsonl
+```
